@@ -161,7 +161,7 @@ python scripts/evaluate.py \
 
 ## Running All Models End-to-End
 
-> ⚠️ **Not recommended** unless you have substantial compute. Training all three models sequentially is resource-intensive.
+> **Not recommended** unless you have substantial compute. Training all three models sequentially is resource-intensive.
 
 ```bash
 python scripts/run_all.py \
