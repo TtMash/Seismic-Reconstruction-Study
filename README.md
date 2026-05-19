@@ -1,108 +1,219 @@
-Orange Basin 3D Seismic Reconstruction (UNet3D, ResAttUNet3D, ViT3D)
+# 🌊 Orange Basin 3D Seismic Volume Reconstruction
 
-Goal: Compare how well three models reconstruct augmented seismic volumes back to the original Orange Basin 3D dataset using PSNR, MSE, RMSE, SSIM, and MS-SSIM.
+> **Comparative Analysis of Deep Neural Network Architectures for 3D Seismic Volume Reconstruction**
+> UNet3D · ResAttUNet3D · Vision Transformer (ViT3D)
 
-Models:
-- UNet3D (baseline)
-- ResAttUNet3D (Residual + Channel/Spatial Attention)
-- ViT3D (Transformer-based patch autoencoder)
+---
 
-Pipeline:
-1) Split dataset and persist split
-2) Augment training data (noise + blur) and save augmented patches
-3) Train selected model on augmented patches
-4) Evaluate metrics on val/test
-5) Save sample images comparing augmented vs original and model outputs
+## Overview
 
-Dataset:
-- Orange Basin provided as SEG/SEGY file (or .npy). Target volume dims ~ 560 x 773 x 805 (inline x crossline x time).
+This project benchmarks three deep learning architectures on the task of reconstructing augmented 3D seismic volumes back to their clean originals, using the **Orange Basin** dataset. Reconstruction quality is assessed across five metrics: **PSNR**, **MSE**, **RMSE**, **SSIM**, and **MS-SSIM**.
 
-Before proceeding, put everything in a folder called "orange_basin_reconstruction"
+| Model | Architecture | Highlights |
+|---|---|---|
+| `UNet3D` | Encoder–Decoder (baseline) | Fast, proven, lightweight |
+| `ResAttUNet3D` | Residual + Attention | Channel & spatial attention gates |
+| `ViT3D` | Transformer patch autoencoder | Global context via self-attention |
 
-Directory layout:
+---
 
+## Dataset
+
+The Orange Basin seismic volume is provided as a **SEG-Y / SEGY** or **NumPy (`.npy`)** file.
+
+- **Target volume dimensions:** ~560 × 773 × 805 *(inline × crossline × time)*
+- Volumes are normalised to **[−1, 1]** using min–max scaling prior to patching
+- Augmentation applies **Gaussian noise**, **speckle noise**, and **3D Gaussian blur**
+
+Place the dataset at:
+```
+orange_basin_reconstruction/src/data/Orange Basin_cropped 1
+```
+
+---
+
+## Project Structure
+
+```
 orange_basin_reconstruction/
+├── data/                          # Created during data preparation
+│   ├── raw/                       # Raw volume saved as .npy
+│   ├── splits/                    # Train / val / test split JSON
+│   ├── augmented/                 # Saved augmented patch datasets (.npz)
+│   └── samples/                   # Saved comparison images (aug vs orig)
+│
+├── runs/                          # Created during model training
+│   └── <model>/<timestamp>/       # Checkpoints and logs
+│
+├── src/
+│   ├── data/
+│   │   ├── dataset.py             # Loaders, patch extraction, augmentation
+│   │   └── Orange Basin_cropped 1 # ← Place dataset here
+│   ├── metrics/
+│   │   └── metrics.py             # MSE, RMSE, PSNR, SSIM3D, MS-SSIM3D
+│   ├── models/
+│   │   ├── unet3d.py
+│   │   ├── res_attention_unet3d.py
+│   │   └── vit3d.py
+│   └── utils/
+│       ├── seg_loader.py          # Optional SEG-Y loading via segyio
+│       └── train_utils.py
+│
+├── scripts/
+│   ├── prepare_data.py            # Load → split → augment → save
+│   ├── train.py                   # Train a single model
+│   ├── evaluate.py                # Evaluate metrics + save predictions
+│   └── run_all.py                 # End-to-end pipeline (see warning below)
+│
+└── requirements.txt
+```
 
-- data/      # Note that this will be created during data preparation
-  - raw/                 # raw volume saved as .npy
-  - splits/              # train/val/test split JSON
-  - augmented/           # saved augmented patch datasets (npz)
-  - samples/             # a few saved images (aug vs orig)
-- runs/      # Note that this will be created during the training of models
-  - <model>/<timestamp>/ # checkpoints and logs
-- src/
-  - data/
-    - dataset.py         # loaders, patch extraction, augmentation
-    - Orange Basin_cropped 1 # the dataset (Place it here)
-  - metrics/
-    - metrics.py         # MSE, RMSE, PSNR, SSIM3D, MS-SSIM3D
-  - models/
-    - unet3d.py
-    - res_attention_unet3d.py
-    - vit3d.py
-  - utils/
-    - seg_loader.py      # optional SEG-Y loading via segyio
-    - train_utils.py
-- scripts/
-  - prepare_data.py      # load > split > augment > save
-  - train.py             # train one model
-  - evaluate.py          # evaluate metrics + save predictions
-- requirements.txt
+---
 
-Dependencies (install with pip):
-- torch, torchvision, torchaudio (match your CUDA)
-- numpy, scipy, matplotlib, tqdm
-- segyio (optional; for direct SEG/SEGY reading)
+## Installation
 
-Example installs (CPU only):
-  pip install torch --index-url https://download.pytorch.org/whl/cpu
-  pip install numpy scipy matplotlib tqdm segyio
+Install dependencies with pip. Match your PyTorch build to your CUDA version.
 
-Quick start:
-1) Prepare data (from SEG/SEGY or pre-saved .npy):
-   - If SEG/SEGY: scripts/prepare_data.py --input path/to/data.segy --format segy
-   - If NumPy:    scripts/prepare_data.py --input path/to/volume.npy --format numpy
+```bash
+# CPU-only (for testing / data prep)
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+pip install numpy scipy matplotlib tqdm segyio
+```
 
-   Common args:
-   - --outdir data
-   - --patch-size 64 64 64
-   - --train-patches 2000 --val-patches 400
+> `segyio` is optional — only required for direct SEG-Y ingestion. If unavailable, convert to `.npy` first.
 
-   Example:
-   - python scripts/prepare_data.py --input C:/data/orange_basin.segy --format segy --outdir data --patch-size 64 64 64 --train-patches 2000 --val-patches 400
-   
-   - Or if one wants to run on the Wits Cluster run "run_cluster_prepare_data.sh"
+---
 
-2) Train a model:
-   - python scripts/train.py --model unet3d --data-dir data --batch-size 32 --epochs 50 --lr 1e-3 --patch-size 64 64 64
-   - python scripts/train.py --model resattunet3d --data-dir data --batch-size 4 --epochs 50 --lr 1e-3 --patch-size 64 64 64
-   - python scripts/train.py --model vit3d --data-dir data --batch-size 2 --epochs 50 --lr 1e-4 --patch-size 64 64 64
+## Quick Start
 
-   - Or if one wants to run on the Wits Cluster run:
-     - "run_cluster_unet3d.sh" for running the UNet3D
-     - "run_cluster_resattunet3d.sh" for running the ResAttUNet3D
-     - "run_cluster_unet3d.sh" for running the ViT3D
+### 1 — Prepare Data
 
-3) Evaluate:
-   - python scripts/evaluate.py --model unet3d --data-dir data --ckpt runs/unet3d/<timestamp>/best.pt
+**From SEG-Y:**
+```bash
+python scripts/prepare_data.py \
+  --input path/to/orange_basin.segy \
+  --format segy \
+  --outdir data \
+  --patch-size 64 64 64 \
+  --train-patches 2000 \
+  --val-patches 400
+```
 
-   - Or if one wants to run on the Wits Cluster run "run_cluster_evaluate.sh"
+**From NumPy:**
+```bash
+python scripts/prepare_data.py \
+  --input path/to/volume.npy \
+  --format numpy \
+  --outdir data \
+  --patch-size 64 64 64 \
+  --train-patches 2000 \
+  --val-patches 400
+```
 
-Run all models (highly not advised):
-   - End-to-end (prepare, train all, evaluate, summarize):
-     python scripts/run_all.py --input "src/data/Orange Basin_cropped 1" --format auto --outdir data --patch-size 64 64 64 --train-patches 2000 --val-patches 400 --epochs 50 --batch-size 32 
-     - Uses smaller batch and LR for ViT3D automatically.
-     - Writes metrics to runs/<model>/metrics.json and summary to runs/summary.(json|csv) with per-model timing (train/eval/total) and prepare time.
+> **Wits HPC cluster:** use `run_cluster_prepare_data.sh`
 
-   - Or if one wants to run on the Wits Cluster run "run_cluster.sh"
+---
 
-Notes:
-- Volumes are normalized to [-1,1] using min/max before patching.
-- Augmentation includes Gaussian noise, speckle noise, and 3D Gaussian blur.
-- SSIM/MS-SSIM are computed in 3D with a Gaussian window. For very large volumes, patch-wise evaluation is used.
-- ViT3D uses non-overlapping 3D patches; its batch size may need to be small.
+### 2 — Train a Model
 
-Troubleshooting:
-- If segyio is not installed, convert your SEG/SEGY to .npy first or install segyio.
-- If out-of-memory, reduce --patch-size and/or --batch-size.
-- On Windows paths, quote paths with spaces.
+```bash
+# UNet3D (baseline)
+python scripts/train.py \
+  --model unet3d \
+  --data-dir data \
+  --batch-size 32 --epochs 50 --lr 1e-3 \
+  --patch-size 64 64 64
+
+# ResAttUNet3D
+python scripts/train.py \
+  --model resattunet3d \
+  --data-dir data \
+  --batch-size 4 --epochs 50 --lr 1e-3 \
+  --patch-size 64 64 64
+
+# ViT3D (requires smaller batch + lower LR)
+python scripts/train.py \
+  --model vit3d \
+  --data-dir data \
+  --batch-size 2 --epochs 50 --lr 1e-4 \
+  --patch-size 64 64 64
+```
+
+> **Wits HPC cluster:**
+> - UNet3D → `run_cluster_unet3d.sh`
+> - ResAttUNet3D → `run_cluster_resattunet3d.sh`
+> - ViT3D → `run_cluster_vit3d.sh`
+
+---
+
+### 3 — Evaluate
+
+```bash
+python scripts/evaluate.py \
+  --model unet3d \
+  --data-dir data \
+  --ckpt runs/unet3d/<timestamp>/best.pt
+```
+
+> **Wits HPC cluster:** use `run_cluster_evaluate.sh`
+
+---
+
+## Running All Models End-to-End
+
+> ⚠️ **Not recommended** unless you have substantial compute. Training all three models sequentially is resource-intensive.
+
+```bash
+python scripts/run_all.py \
+  --input "src/data/Orange Basin_cropped 1" \
+  --format auto \
+  --outdir data \
+  --patch-size 64 64 64 \
+  --train-patches 2000 \
+  --val-patches 400 \
+  --epochs 50 \
+  --batch-size 32
+```
+
+- ViT3D automatically uses a reduced batch size and learning rate
+- Per-model metrics are written to `runs/<model>/metrics.json`
+- A consolidated summary is saved to `runs/summary.json` and `runs/summary.csv`, including train, eval, and total timing
+
+> **Wits HPC cluster:** use `run_cluster.sh`
+
+---
+
+## Metrics
+
+All five metrics are computed on the validation and test sets after training:
+
+| Metric | Measures |
+|---|---|
+| **MSE** | Mean squared error (pixel-level fidelity) |
+| **RMSE** | Root mean squared error |
+| **PSNR** | Peak signal-to-noise ratio (higher = better) |
+| **SSIM** | Structural similarity (perceptual quality) |
+| **MS-SSIM** | Multi-scale structural similarity |
+
+SSIM and MS-SSIM are computed in 3D using a Gaussian window. For large volumes, patch-wise evaluation is used automatically.
+
+---
+
+## Notes & Troubleshooting
+
+| Issue | Fix |
+|---|---|
+| `segyio` not installed | Convert SEG-Y to `.npy` first, or `pip install segyio` |
+| Out-of-memory error | Reduce `--patch-size` and/or `--batch-size` |
+| Windows path with spaces | Wrap paths in quotes: `"path/to/Orange Basin_cropped 1"` |
+| ViT3D instability | Use `--lr 1e-4` and `--batch-size 2` or lower |
+
+---
+
+## Citation
+
+If you use this codebase or dataset pipeline in your research, please cite accordingly and acknowledge the **Orange Basin** seismic dataset source.
+
+---
+
+*Built for comparative deep learning research on real-world 3D seismic reconstruction.*
